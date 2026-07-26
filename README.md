@@ -47,3 +47,4 @@ npm run dev
 - GET /api/tickets → lista de tickets
 - GET /api/sessions → estructura inicial de sesiones# proyecto-eventos-pre-entrega-1
 # proyecto-eventos-pre-entrega-1
+# proyecto-eventos-pre-entrega-1-Comisi-n-101730
