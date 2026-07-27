@@ -45,6 +45,31 @@ npm run dev
 - GET /api/events → lista de eventos
 - GET /api/users → lista de usuarios
 - GET /api/tickets → lista de tickets
-- GET /api/sessions → estructura inicial de sesiones# proyecto-eventos-pre-entrega-1
-# proyecto-eventos-pre-entrega-1
-# proyecto-eventos-pre-entrega-1-Comisi-n-101730
+- GET /api/sessions → estructura inicial de sesiones
+- POST /api/sessions/register → registro de usuarios
+
+## Registro de usuarios
+
+### POST /api/sessions/register
+
+Campos esperados en el body (JSON):
+- first_name (string, requerido)
+- last_name (string, requerido)
+- email (string, requerido, formato válido)
+- password (string, requerido, mínimo 8 caracteres)
+
+Ejemplo de request:
+\`\`\`json
+{ "first_name": "Ana", "last_name": "Pérez", "email": "ana@mail.com", "password": "Secreta123" }
+\`\`\`
+
+Respuestas posibles:
+- 201: usuario creado exitosamente (la respuesta no incluye la contraseña)
+- 400: campos faltantes o email/contraseña con formato inválido
+- 409: el email ya está registrado
+
+### Cómo probarlo
+1. Levantar el servidor con `npm run dev`
+2. Hacer un POST a `http://localhost:3000/api/sessions/register` con el body de ejemplo (Postman, Thunder Client o curl)
+3. Verificar que la respuesta no incluya el campo `password`
+4. Verificar en MongoDB que la contraseña se guarda hasheada (no en texto plano)
