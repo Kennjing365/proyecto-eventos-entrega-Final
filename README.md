@@ -74,3 +74,4 @@ Respuestas posibles:
 3. Verificar que la respuesta no incluya el campo `password`
 4. Verificar en MongoDB que la contraseña se guarda hasheada (no en texto plano)# proyecto-eventos-pre-entrega-2
 # proyecto-eventos-pre-entrega-2
+# proyecto-eventos-pre-entrega-2
