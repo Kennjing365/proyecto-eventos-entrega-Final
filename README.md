@@ -73,3 +73,4 @@ Respuestas posibles:
 2. Hacer un POST a `http://localhost:3000/api/sessions/register` con el body de ejemplo (Postman, Thunder Client o curl)
 3. Verificar que la respuesta no incluya el campo `password`
 4. Verificar en MongoDB que la contraseña se guarda hasheada (no en texto plano)# proyecto-eventos-pre-entrega-2
+# proyecto-eventos-pre-entrega-2
