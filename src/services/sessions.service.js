@@ -1,9 +1,12 @@
 import { registerUser, getUserByEmail } from '../repositories/user.repository.js'
-import { hashPassword } from '../utils.js'
+import { hashPassword, comparePassword } from '../utils/hash.js'
+import { generateToken } from '../utils/jwt.js'
+
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const MIN_PASSWORD_LENGTH = 8
 
+//REGISTER USER SERVIVES
 export const registerUserService = async ({ first_name, last_name, email, password }) => {
     if (!first_name || !last_name || !email || !password) {
         return { error: 'campos_faltantes', message: 'Faltan campos obligatorios' }
@@ -43,4 +46,32 @@ export const registerUserService = async ({ first_name, last_name, email, passwo
             role: newUser.role
         }
     }
+}
+
+//LOGIN USER SERVICES
+
+export const loginUserService = async ({email, password}) => {
+    if (!email || !password) {
+        return { error: 'credenciales_invalidas' }
+    }
+
+    const normalizedEmail = email.trim().toLowerCase()
+    const user = await getUserByEmail(normalizedEmail)
+
+    if (!user) {
+        return {error: 'credenciales_invalidas'}
+    }
+
+    const isvalid = await comparePassword(password, user.password)
+
+    if(!isvalid) {
+        return {error: 'credenciaales_invalidas'}
+    }
+
+    const token = generateToken({
+        id: user._id,
+        email: user.email,
+        role: user.role
+    })
+    return { token }
 }
