@@ -1,4 +1,4 @@
-import { verifyToken } from "../utils/jwt.js";
+import { verifyToken } from '../utils/jwt.js'
 
 export const auth = (req, res, next) => {
     const token = req.cookies.currentUser
@@ -12,6 +12,6 @@ export const auth = (req, res, next) => {
         req.user = payload
         next()
     } catch (error) {
-        return res.status(401).json({ status: 'error', message: 'No autenticado' })      
+        return res.status(401).json({ status: 'error', message: 'No autenticado' })
     }
 }

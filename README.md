@@ -49,51 +49,89 @@ src/
 │ ├── user.controllers.js
 │ ├── ticket.controllers.js
 │ └── sessions.controller.js
+├── services/
+│ ├── sessions.service.js
+│ └── events.service.js
 ├── repositories/
-│ └── user.repository.js
+│ ├── user.repository.js
+│ └── events.repository.js
 ├── dao/
-│ └── users.dao.js
+│ ├── users.dao.js
+│ └── events.dao.js
 ├── models/
 │ ├── event.model.js
 │ ├── ticket.model.js
 │ └── user.model.js
 ├── middlewares/
+│ ├── auth.middleware.js # valida JWT de la cookie → 401 si no hay sesión
+│ └── authorize.middleware.js # recibe roles permitidos → 403 si el rol no coincide
 └── utils/
 ├── hash.js # bcrypt (hash y comparación de contraseñas)
-└── jwt.js # generación de JWT
+└── jwt.js # generación y verificación de JWT
 
 ## Autenticación con Passport.js
 
-La autenticación fue refactorizada para centralizar toda su lógica en estrategias de Passport, definidas en `src/config/passport.config.js`. El contrato externo de la API (rutas, métodos y formato de respuestas) **no cambió** respecto de la entrega anterior — solo cambió la organización interna.
+La autenticación está centralizada en estrategias de Passport, definidas en `src/config/passport.config.js`:
 
-Estrategias implementadas:
+- **register** (`passport-local`): valida campos obligatorios, formato de email y longitud de contraseña, normaliza el email, verifica que no exista, hashea la contraseña con bcrypt y crea el usuario.
+- **login** (`passport-local`): busca el usuario por email y compara la contraseña con bcrypt. Siempre responde con un mensaje genérico si algo falla, sin indicar si el email no existe o la contraseña es incorrecta.
+- **current** (`passport-jwt`): extrae el JWT desde la cookie `currentUser`, lo verifica y deja el payload disponible en `req.user`.
 
-- **register** (`passport-local`): valida los campos obligatorios, el formato del email y la longitud de la contraseña, normaliza el email, verifica que no exista un usuario con ese email, hashea la contraseña con bcrypt y crea el usuario en la base de datos.
-- **login** (`passport-local`): busca el usuario por email y compara la contraseña con bcrypt. Nunca revela si falló el email o la contraseña — siempre responde con un mensaje genérico.
-- **current** (`passport-jwt`): extrae el JWT desde la cookie `currentUser`, lo verifica contra `JWT_SECRET` y deja el payload disponible en `req.user`.
+El controller (no las estrategias) es responsable de generar el JWT y setear la cookie tras un login exitoso.
 
-El controller (no las estrategias) es responsable de generar el JWT y setear la cookie tras un login exitoso, y de armar las respuestas finales.
+## Roles y autorización
 
-`passport.config.js` está organizado para poder sumar nuevas estrategias en el futuro (por ejemplo, login con Google o GitHub) sin necesidad de modificar `app.js`.
+### Roles disponibles
+- **user** (rol por defecto): puede consultar eventos publicados.
+- **organizer**: puede crear eventos y modificar/cancelar los eventos que él mismo creó.
+- **admin**: acceso total, incluyendo ver todos los usuarios y modificar cualquier evento.
+
+El rol **no puede establecerse desde el body del registro público** — todo usuario nuevo se crea con `role: "user"` por defecto, sin importar qué se envíe en la petición.
+
+### Matriz de permisos
+
+| Acción |                           |user | organizer |admin|
+|---|---|---|---|
+| Consultar eventos publicados       | ✅ |     ✅    | ✅ |
+| Crear eventos                      | ❌ |     ✅    | ✅ |
+| Modificar/cancelar eventos propios | ❌ |     ✅    | ✅ |
+| Modificar cualquier evento         | ❌ |     ❌    | ✅ |
+| Ver todos los usuarios             | ❌ |     ❌    | ✅ |
+
+### Middlewares de autenticación y autorización
+
+- **`auth.middleware.js`**: lee el JWT desde la cookie `currentUser`, lo valida y completa `req.user`. Si no hay cookie o el token es inválido/expirado, responde **401**.
+- **`authorize.middleware.js`**: recibe como parámetro un array de roles permitidos (por ejemplo `authorize(['organizer', 'admin'])`). Si el usuario autenticado no tiene uno de esos roles, responde **403**.
+
+Ambos middlewares son reutilizables y están completamente separados de la lógica de las rutas y los controllers.
+
+### Diferencia entre 401 y 403
+
+- **401 — No autenticado**: no hay sesión iniciada (falta la cookie, o el token es inválido/expirado).
+- **403 — Sin permisos**: el usuario sí tiene una sesión válida, pero su rol no le permite realizar la acción solicitada.
+
+### Propiedad de recursos
+
+Un `organizer` solo puede modificar los eventos que él mismo creó. Un `admin` puede modificar cualquier evento, sin importar quién lo haya creado. Esta validación se resuelve en `events.service.js`, comparando el campo `organizer` guardado en el evento contra el `id` del usuario autenticado (`req.user`).
 
 ## Rutas disponibles
 
-| Método | Ruta | Descripción | Protegida |
-|---|---|---|---|
-| GET | /api/health | Estado del servidor | No |
-| GET | /api/events | Lista de eventos | No |
-| GET | /api/users | Lista de usuarios | No |
-| GET | /api/tickets | Lista de tickets | No |
-| POST | /api/sessions/register | Registro de usuarios | No |
-| POST | /api/sessions/login | Login de usuarios | No |
-| GET | /api/sessions/current | Usuario autenticado | Sí (cookie + estrategia Passport) |
-| POST | /api/sessions/logout | Cierra la sesión | No |
+| Método | Ruta | Descripción | Requiere sesión | Roles permitidos |
+|---|---|---|---|---|
+| GET | /api/health | Estado del servidor | No | — |
+| GET | /api/events | Lista de eventos publicados | No | — |
+| POST | /api/events | Crear un evento | Sí | organizer, admin |
+| PUT | /api/events/:id | Modificar un evento | Sí | organizer (dueño) o admin |
+| GET | /api/users | Lista de todos los usuarios | Sí | admin |
+| GET | /api/tickets | Lista de tickets | No | — |
+| POST | /api/sessions/register | Registro de usuarios | No | — |
+| POST | /api/sessions/login | Login de usuarios | No | — |
+| GET | /api/sessions/current | Usuario autenticado | Sí | Cualquier rol autenticado |
+| POST | /api/sessions/logout | Cierra la sesión | No | — |
 
 ---
 
 ### POST /api/sessions/register
-
-Registra un nuevo usuario. La validación, normalización, hash de contraseña y creación del usuario ocurren dentro de la estrategia `register` de Passport.
 
 Campos esperados en el body (JSON):
 - first_name (string, requerido)
@@ -106,7 +144,7 @@ Campos esperados en el body (JSON):
 { "first_name": "Ana", "last_name": "Pérez", "email": "ana@mail.com", "password": "Secreta123" }
 ```
 
-**Response 201** (usuario creado, sin password):
+**Response 201:**
 ```json
 {
   "status": "success",
@@ -134,19 +172,17 @@ Campos esperados en el body (JSON):
 
 ### POST /api/sessions/login
 
-La estrategia `login` de Passport valida las credenciales. Si son correctas, el controller genera un JWT (payload: id, email, role) y lo guarda en una cookie httpOnly llamada `currentUser`.
-
 **Request:**
 ```json
 { "email": "ana@mail.com", "password": "Secreta123" }
 ```
 
-**Response 200** (además setea la cookie `currentUser`):
+**Response 200** (setea la cookie `currentUser`):
 ```json
 { "status": "success", "message": "Login correcto" }
 ```
 
-**Response 401** (credenciales incorrectas, mensaje genérico):
+**Response 401:**
 ```json
 { "status": "error", "message": "Credenciales inválidas" }
 ```
@@ -154,8 +190,6 @@ La estrategia `login` de Passport valida las credenciales. Si son correctas, el 
 ---
 
 ### GET /api/sessions/current
-
-Protegida por la estrategia `current` de Passport. Lee la cookie `currentUser`, verifica el JWT y devuelve los datos del usuario autenticado (sin password).
 
 **Response 200:**
 ```json
@@ -174,21 +208,80 @@ Protegida por la estrategia `current` de Passport. Lee la cookie `currentUser`, 
 
 ### POST /api/sessions/logout
 
-Elimina la cookie `currentUser`. No pasa por ninguna estrategia de Passport.
-
 **Response 200:**
 ```json
 { "status": "success", "message": "Sesión cerrada" }
 ```
 
+---
+
+### POST /api/events
+
+Requiere sesión y rol `organizer` o `admin`.
+
+**Request:**
+```json
+{ "name": "Congreso Tech 2026", "date": "2026-11-10", "place": "Buenos Aires", "price": 5000 }
+```
+
+**Response 201:**
+```json
+{
+  "status": "success",
+  "payload": { "id": "6690...", "name": "Congreso Tech 2026", "organizer": "665f2a..." }
+}
+```
+
+**Response 401** (sin sesión):
+```json
+{ "status": "error", "message": "No autenticado" }
+```
+
+**Response 403** (rol `user`, sin permiso):
+```json
+{ "status": "error", "message": "No tenés permisos para realizar esta acción" }
+```
+
+---
+
+### PUT /api/events/:id
+
+Requiere sesión. Un `organizer` solo puede modificar sus propios eventos; un `admin` puede modificar cualquiera.
+
+**Response 200:**
+```json
+{ "status": "success", "payload": { "id": "6690...", "name": "Congreso Tech 2026 (actualizado)" } }
+```
+
+**Response 403** (organizer intentando modificar un evento ajeno):
+```json
+{ "status": "error", "message": "No podés modificar un evento que no te pertenece" }
+```
+
+---
+
+### GET /api/users
+
+Requiere sesión y rol `admin`.
+
+**Response 200:**
+```json
+{ "status": "success", "payload": [ /* lista de usuarios */ ] }
+```
+
+**Response 403** (rol distinto de admin):
+```json
+{ "status": "error", "message": "No tenés permisos para realizar esta acción" }
+```
+
 ## Cómo probar el flujo completo
 
 1. Levantar el servidor con `npm run dev`
-2. Registrar un usuario: `POST /api/sessions/register`
-3. Registrar el mismo email de nuevo → debería devolver 409
-4. Hacer login: `POST /api/sessions/login` (Postman guarda la cookie automáticamente)
-5. Hacer login con contraseña incorrecta → debería devolver 401
-6. Consultar el usuario autenticado: `GET /api/sessions/current` → 200
-7. Borrar la cookie manualmente y volver a consultar `/current` → 401
-8. Cerrar sesión: `POST /api/sessions/logout`
-9. Volver a consultar `GET /api/sessions/current` → 401
+2. Registrar un usuario (queda con rol `user` por defecto)
+3. Para probar roles distintos, cambiar manualmente el campo `role` del usuario en MongoDB Compass (a `organizer` o `admin`) y volver a hacer login (el rol queda fijado en el JWT desde el momento del login)
+4. Probar `POST /api/events` con un usuario `user` → 403
+5. Probar `POST /api/events` con un usuario `organizer` → 201
+6. Probar `GET /api/users` con un usuario `organizer` → 403
+7. Probar `GET /api/users` con un usuario `admin` → 200
+8. Probar cualquier ruta protegida sin cookie → 401
+9. Probar que un `organizer` no pueda modificar un evento creado por otro `organizer` → 403
