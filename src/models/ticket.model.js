@@ -1,16 +1,35 @@
-import { Schema, Types, model, types}  from "mongoose"
+import { Schema, model } from "mongoose"
 
-const ticketShema = new Schema({
-    user:{
-
-        type: Types.ObjectId,
-        ref: "user"
+const ticketSchema = new Schema({
+    user: {
+        type: Schema.Types.ObjectId,
+        ref: 'user',
+        required: true
     },
-    event:{
-        type: Types.ObjectId, 
-        ref: "event"
+    event: {
+        type: Schema.Types.ObjectId,
+        ref: 'event',
+        required: true
+    },
+    status: {
+        type: String,
+        enum: ['confirmed', 'pending', 'cancelled'],
+        default: 'confirmed'
+    },
+    quantity: {
+        type: Number,
+        required: true,
+        min: 1
+    },
+    reservationCode: {
+        type: String,
+        required: true,
+        unique: true
+    },
+    cancelledAt: {
+        type: Date,
+        default: null
     }
+}, { timestamps: true })
 
-});
-
-export const ticketShema = model("ticket", ticketShema);
+export const ticketModel = model('ticket', ticketSchema)

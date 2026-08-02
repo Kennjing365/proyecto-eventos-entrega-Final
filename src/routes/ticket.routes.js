@@ -1,8 +1,10 @@
 import { Router } from "express"
-import { getAllTickets } from "../controllers/ticket.controller.js"
+import { getMyTicketsController, cancelTicketController } from "../controllers/ticket.controller.js"
+import { auth } from "../middlewares/auth.middleware.js"
 
-const router = Router();
+const router = Router()
 
-router.get("/", getAllTickets );
+router.get("/my-tickets", auth, getMyTicketsController)
+router.patch("/:tid/cancel", auth, cancelTicketController)
 
-export default router;
+export default router

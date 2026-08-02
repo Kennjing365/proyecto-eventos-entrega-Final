@@ -1,7 +1,7 @@
 # Plataforma de Eventos e Inscripciones
 
 ## Temática
-Sistema para gestión de eventos, sesiones/inscripciones y tickets, con autenticación de usuarios centralizada mediante Passport.js, JWT y cookies.
+Sistema para gestión de eventos e inscripciones, con autenticación centralizada mediante Passport.js, JWT y cookies, autorización por roles, entidad Events con reglas de negocio, y sistema de Tickets con control de cupos y notificaciones por email.
 
 ## Tecnologías
 - Node.js
@@ -14,6 +14,7 @@ Sistema para gestión de eventos, sesiones/inscripciones y tickets, con autentic
 - passport
 - passport-local
 - passport-jwt
+- nodemailer
 
 ## Instalación
 1. Cloná el repositorio
@@ -26,19 +27,26 @@ Sistema para gestión de eventos, sesiones/inscripciones y tickets, con autentic
 - MONGO_URL: cadena de conexión a MongoDB
 - JWT_SECRET: clave secreta para firmar los JWT
 - JWT_EXPIRES_IN: tiempo de expiración del JWT (ej: 1h)
+- MAIL_HOST: host SMTP para el envío de emails
+- MAIL_PORT: puerto SMTP
+- MAIL_USER: usuario/casilla de email
+- MAIL_PASS: contraseña de aplicación (nunca la contraseña normal de la cuenta)
+- MAIL_FROM: dirección remitente de los emails
 
 ## Cómo ejecutar
-npm runn dev
+
+npm run dev
+
 
 ## Estructura de carpetas
 
 src/
-├── app.js # configura Express e inicializa Passport
-├── server.js # levanta el servidor
+├── app.js
+├── server.js
 ├── config/
-│ ├── dataBase.js # conexión a MongoDB
-│ ├── env.js # variables de entorno
-│ └── passport.config.js # estrategias de Passport (register, login, current)
+│ ├── dataBase.js
+│ ├── env.js
+│ └── passport.config.js
 ├── routes/
 │ ├── event.routes.js
 │ ├── user.routes.js
@@ -47,101 +55,171 @@ src/
 ├── controllers/
 │ ├── event.controller.js
 │ ├── user.controllers.js
-│ ├── ticket.controllers.js
+│ ├── ticket.controller.js
 │ └── sessions.controller.js
 ├── services/
 │ ├── sessions.service.js
-│ └── events.service.js
+│ ├── events.service.js
+│ └── tickets.service.js
 ├── repositories/
 │ ├── user.repository.js
-│ └── events.repository.js
+│ ├── events.repository.js
+│ └── tickets.repository.js
 ├── dao/
 │ ├── users.dao.js
-│ └── events.dao.js
+│ ├── events.dao.js
+│ └── tickets.dao.js
 ├── models/
 │ ├── event.model.js
 │ ├── ticket.model.js
 │ └── user.model.js
 ├── middlewares/
-│ ├── auth.middleware.js # valida JWT de la cookie → 401 si no hay sesión
-│ └── authorize.middleware.js # recibe roles permitidos → 403 si el rol no coincide
+│ ├── auth.middleware.js
+│ └── authorize.middleware.js
 └── utils/
-├── hash.js # bcrypt (hash y comparación de contraseñas)
-└── jwt.js # generación y verificación de JWT
+├── hash.js
+├── jwt.js
+├── reservationCode.js
+└── mailer.js
+
 
 ## Autenticación con Passport.js
 
-La autenticación está centralizada en estrategias de Passport, definidas en `src/config/passport.config.js`:
+- **register**: valida campos, normaliza email, hashea contraseña, verifica duplicados.
+- **login**: valida credenciales con bcrypt, mensaje genérico ante fallos.
+- **current**: extrae y verifica el JWT desde la cookie `currentUser`.
 
-- **register** (`passport-local`): valida campos obligatorios, formato de email y longitud de contraseña, normaliza el email, verifica que no exista, hashea la contraseña con bcrypt y crea el usuario.
-- **login** (`passport-local`): busca el usuario por email y compara la contraseña con bcrypt. Siempre responde con un mensaje genérico si algo falla, sin indicar si el email no existe o la contraseña es incorrecta.
-- **current** (`passport-jwt`): extrae el JWT desde la cookie `currentUser`, lo verifica y deja el payload disponible en `req.user`.
-
-El controller (no las estrategias) es responsable de generar el JWT y setear la cookie tras un login exitoso.
+El controller genera el JWT y setea la cookie tras un login exitoso.
 
 ## Roles y autorización
 
 ### Roles disponibles
-- **user** (rol por defecto): puede consultar eventos publicados.
-- **organizer**: puede crear eventos y modificar/cancelar los eventos que él mismo creó.
-- **admin**: acceso total, incluyendo ver todos los usuarios y modificar cualquier evento.
+- **user** (default): consulta eventos publicados y gestiona sus propias inscripciones.
+- **organizer**: crea y administra sus propios eventos.
+- **admin**: acceso total.
 
-El rol **no puede establecerse desde el body del registro público** — todo usuario nuevo se crea con `role: "user"` por defecto, sin importar qué se envíe en la petición.
+El rol no puede establecerse desde el body del registro público.
 
 ### Matriz de permisos
 
-| Acción |                           |user | organizer |admin|
+| Acción | user | organizer | admin |
 |---|---|---|---|
-| Consultar eventos publicados       | ✅ |     ✅    | ✅ |
-| Crear eventos                      | ❌ |     ✅    | ✅ |
-| Modificar/cancelar eventos propios | ❌ |     ✅    | ✅ |
-| Modificar cualquier evento         | ❌ |     ❌    | ✅ |
-| Ver todos los usuarios             | ❌ |     ❌    | ✅ |
+| Consultar eventos publicados | ✅ | ✅ | ✅ |
+| Crear eventos | ❌ | ✅ | ✅ |
+| Modificar/cancelar eventos propios | ❌ | ✅ | ✅ |
+| Modificar cualquier evento | ❌ | ❌ | ✅ |
+| Inscribirse a eventos | ✅ | ✅ | ✅ |
+| Ver inscriptos de sus propios eventos | ❌ | ✅ | ✅ |
+| Ver todos los usuarios | ❌ | ❌ | ✅ |
 
-### Middlewares de autenticación y autorización
-
-- **`auth.middleware.js`**: lee el JWT desde la cookie `currentUser`, lo valida y completa `req.user`. Si no hay cookie o el token es inválido/expirado, responde **401**.
-- **`authorize.middleware.js`**: recibe como parámetro un array de roles permitidos (por ejemplo `authorize(['organizer', 'admin'])`). Si el usuario autenticado no tiene uno de esos roles, responde **403**.
-
-Ambos middlewares son reutilizables y están completamente separados de la lógica de las rutas y los controllers.
+### Middlewares
+- **`auth.middleware.js`**: valida el JWT de la cookie. Sin sesión válida → **401**.
+- **`authorize.middleware.js`**: recibe roles permitidos. Rol no autorizado → **403**.
 
 ### Diferencia entre 401 y 403
+- **401**: no hay sesión iniciada.
+- **403**: hay sesión, pero el rol o la propiedad del recurso no habilita la acción.
 
-- **401 — No autenticado**: no hay sesión iniciada (falta la cookie, o el token es inválido/expirado).
-- **403 — Sin permisos**: el usuario sí tiene una sesión válida, pero su rol no le permite realizar la acción solicitada.
+## Entidad Events
 
-### Propiedad de recursos
+### Modelo
+- `title`, `description`, `category`, `location` (string, requeridos)
+- `date` (date, requerido)
+- `capacity` (number, requerido, > 0)
+- `price` (number, requerido, >= 0)
+- `status` (enum: `draft`, `published`, `cancelled`, `finished` — default: `draft`)
+- `organizer` (referencia a User)
 
-Un `organizer` solo puede modificar los eventos que él mismo creó. Un `admin` puede modificar cualquier evento, sin importar quién lo haya creado. Esta validación se resuelve en `events.service.js`, comparando el campo `organizer` guardado en el evento contra el `id` del usuario autenticado (`req.user`).
+### Rutas
 
-## Rutas disponibles
+| Método | Ruta | Acceso |
+|---|---|---|
+| POST | /api/events | organizer, admin |
+| GET | /api/events | público |
+| GET | /api/events/:id | público |
+| PUT | /api/events/:id | dueño del evento o admin |
+| PATCH | /api/events/:id/status | dueño del evento o admin |
 
-| Método | Ruta | Descripción | Requiere sesión | Roles permitidos |
+### Filtros, paginación y orden (GET /api/events)
+
+Query params: `status`, `category`, `location`, `dateFrom`, `dateTo`, `page`, `limit`, `sort`.
+
+Ejemplo:
+
+GET /api/events?status=published&category=workshop&page=2&limit=5
+
+
+Respuesta:
+```json
+{ "status": "success", "data": [ /* eventos */ ], "page": 2, "limit": 5, "total": 23, "totalPages": 5 }
+```
+
+### Reglas de negocio
+- No se permite crear con fecha pasada.
+- No se permite publicar un evento `finished` o `cancelled`.
+- `capacity` > 0; `price` >= 0.
+- Un `organizer` solo modifica sus propios eventos; `admin` modifica cualquiera.
+- Un evento `cancelled` no puede modificarse.
+- Cancelar cambia `status` a `cancelled`; nunca se elimina físicamente.
+
+## Entidad Tickets (inscripciones)
+
+### Modelo Ticket
+- `user` (referencia a User)
+- `event` (referencia a Event)
+- `status` (enum: `confirmed`, `pending`, `cancelled` — default: `confirmed`)
+- `quantity` (number, requerido, > 0)
+- `reservationCode` (string, único, autogenerado)
+- `createdAt` (automático)
+- `cancelledAt` (date, se completa al cancelar)
+
+### Rutas
+
+| Método | Ruta | Acceso |
+|---|---|---|
+| POST | /api/events/:eid/tickets | autenticado |
+| GET | /api/tickets/my-tickets | autenticado (propios) |
+| GET | /api/events/:eid/tickets | organizer dueño del evento, o admin |
+| PATCH | /api/tickets/:tid/cancel | dueño del ticket o admin |
+
+### Reglas de negocio (capa services)
+- El evento debe existir, estar `published`, y no estar `cancelled` ni `finished`.
+- `quantity` debe ser un número mayor a 0.
+- Los cupos disponibles se calculan sumando la `quantity` de los tickets **activos** (no `cancelled`). Un ticket cancelado libera su cupo automáticamente.
+- Un usuario no puede tener más de una inscripción activa para el mismo evento.
+- Cancelar cambia `status` a `cancelled` y completa `cancelledAt`; el documento nunca se elimina.
+- Al confirmarse una inscripción, se envía un email de confirmación con Nodemailer (no bloqueante: si el envío falla, la inscripción igual queda registrada).
+
+### Notificaciones por email
+Las credenciales de envío (`MAIL_HOST`, `MAIL_PORT`, `MAIL_USER`, `MAIL_PASS`, `MAIL_FROM`) se leen exclusivamente desde variables de entorno, nunca están hardcodeadas en el código. Cualquier persona que clone el repositorio puede usar sus propias credenciales (por ejemplo, una contraseña de aplicación de Gmail o un inbox de Mailtrap) sin modificar el código fuente.
+
+## Rutas disponibles (resumen general)
+
+| Método | Ruta | Descripción | Sesión | Roles |
 |---|---|---|---|---|
 | GET | /api/health | Estado del servidor | No | — |
-| GET | /api/events | Lista de eventos publicados | No | — |
-| POST | /api/events | Crear un evento | Sí | organizer, admin |
-| PUT | /api/events/:id | Modificar un evento | Sí | organizer (dueño) o admin |
-| GET | /api/users | Lista de todos los usuarios | Sí | admin |
-| GET | /api/tickets | Lista de tickets | No | — |
-| POST | /api/sessions/register | Registro de usuarios | No | — |
-| POST | /api/sessions/login | Login de usuarios | No | — |
-| GET | /api/sessions/current | Usuario autenticado | Sí | Cualquier rol autenticado |
-| POST | /api/sessions/logout | Cierra la sesión | No | — |
+| POST | /api/sessions/register | Registro | No | — |
+| POST | /api/sessions/login | Login | No | — |
+| GET | /api/sessions/current | Usuario autenticado | Sí | cualquiera |
+| POST | /api/sessions/logout | Logout | No | — |
+| GET | /api/events | Listado con filtros | No | — |
+| GET | /api/events/:id | Detalle de evento | No | — |
+| POST | /api/events | Crear evento | Sí | organizer, admin |
+| PUT | /api/events/:id | Modificar evento | Sí | dueño, admin |
+| PATCH | /api/events/:id/status | Cambiar estado | Sí | dueño, admin |
+| POST | /api/events/:eid/tickets | Inscribirse | Sí | cualquiera |
+| GET | /api/events/:eid/tickets | Ver inscriptos | Sí | dueño del evento, admin |
+| GET | /api/tickets/my-tickets | Mis inscripciones | Sí | cualquiera |
+| PATCH | /api/tickets/:tid/cancel | Cancelar inscripción | Sí | dueño, admin |
+| GET | /api/users | Listado de usuarios | Sí | admin |
 
 ---
 
-### POST /api/sessions/register
-
-Campos esperados en el body (JSON):
-- first_name (string, requerido)
-- last_name (string, requerido)
-- email (string, requerido, formato válido)
-- password (string, requerido, mínimo 8 caracteres)
+### POST /api/events/:eid/tickets
 
 **Request:**
 ```json
-{ "first_name": "Ana", "last_name": "Pérez", "email": "ana@mail.com", "password": "Secreta123" }
+{ "quantity": 2 }
 ```
 
 **Response 201:**
@@ -149,86 +227,13 @@ Campos esperados en el body (JSON):
 {
   "status": "success",
   "payload": {
-    "id": "665f2a...",
-    "first_name": "Ana",
-    "last_name": "Pérez",
-    "email": "ana@mail.com",
-    "role": "user"
+    "id": "6690...",
+    "user": "665f2a...",
+    "event": "6690...",
+    "quantity": 2,
+    "status": "confirmed",
+    "reservationCode": "RES-M5X2K1-A9B3F7"
   }
-}
-```
-
-**Response 400** (campos faltantes o inválidos):
-```json
-{ "status": "error", "message": "Faltan campos obligatorios" }
-```
-
-**Response 409** (email ya registrado):
-```json
-{ "status": "error", "message": "El email ya está registrado" }
-```
-
----
-
-### POST /api/sessions/login
-
-**Request:**
-```json
-{ "email": "ana@mail.com", "password": "Secreta123" }
-```
-
-**Response 200** (setea la cookie `currentUser`):
-```json
-{ "status": "success", "message": "Login correcto" }
-```
-
-**Response 401:**
-```json
-{ "status": "error", "message": "Credenciales inválidas" }
-```
-
----
-
-### GET /api/sessions/current
-
-**Response 200:**
-```json
-{
-  "status": "success",
-  "payload": { "id": "665f2a...", "email": "ana@mail.com", "role": "user" }
-}
-```
-
-**Response 401** (sin cookie o token inválido/expirado):
-```json
-{ "status": "error", "message": "No autenticado" }
-```
-
----
-
-### POST /api/sessions/logout
-
-**Response 200:**
-```json
-{ "status": "success", "message": "Sesión cerrada" }
-```
-
----
-
-### POST /api/events
-
-Requiere sesión y rol `organizer` o `admin`.
-
-**Request:**
-```json
-{ "name": "Congreso Tech 2026", "date": "2026-11-10", "place": "Buenos Aires", "price": 5000 }
-```
-
-**Response 201:**
-```json
-{
-  "status": "success",
-  "payload": { "id": "6690...", "name": "Congreso Tech 2026", "organizer": "665f2a..." }
 }
 ```
 
@@ -237,39 +242,65 @@ Requiere sesión y rol `organizer` o `admin`.
 { "status": "error", "message": "No autenticado" }
 ```
 
-**Response 403** (rol `user`, sin permiso):
+**Response 404** (evento inexistente):
+```json
+{ "status": "error", "message": "Evento no encontrado" }
+```
+
+**Response 400** (evento no disponible, sin cupo, inscripción duplicada o cantidad inválida):
+```json
+{ "status": "error", "message": "No hay cupos suficientes disponibles" }
+```
+
+---
+
+### GET /api/tickets/my-tickets
+
+**Response 200:**
+```json
+{
+  "status": "success",
+  "payload": [
+    {
+      "id": "6690...",
+      "status": "confirmed",
+      "quantity": 1,
+      "reservationCode": "RES-M5X2K1-A9B3F7",
+      "event": { "title": "Congreso Tech 2026", "date": "2026-12-01", "location": "Buenos Aires" }
+    }
+  ]
+}
+```
+
+---
+
+### PATCH /api/tickets/:tid/cancel
+
+**Response 200:**
+```json
+{ "status": "success", "payload": { "id": "6690...", "status": "cancelled", "cancelledAt": "2026-08-02T..." } }
+```
+
+**Response 403** (ticket ajeno):
 ```json
 { "status": "error", "message": "No tenés permisos para realizar esta acción" }
 ```
 
 ---
 
-### PUT /api/events/:id
-
-Requiere sesión. Un `organizer` solo puede modificar sus propios eventos; un `admin` puede modificar cualquiera.
+### GET /api/events/:eid/tickets
 
 **Response 200:**
 ```json
-{ "status": "success", "payload": { "id": "6690...", "name": "Congreso Tech 2026 (actualizado)" } }
+{
+  "status": "success",
+  "payload": [
+    { "id": "6690...", "quantity": 1, "status": "confirmed", "user": { "first_name": "Ana", "last_name": "Pérez", "email": "ana@mail.com" } }
+  ]
+}
 ```
 
-**Response 403** (organizer intentando modificar un evento ajeno):
-```json
-{ "status": "error", "message": "No podés modificar un evento que no te pertenece" }
-```
-
----
-
-### GET /api/users
-
-Requiere sesión y rol `admin`.
-
-**Response 200:**
-```json
-{ "status": "success", "payload": [ /* lista de usuarios */ ] }
-```
-
-**Response 403** (rol distinto de admin):
+**Response 403** (no es el dueño del evento ni admin):
 ```json
 { "status": "error", "message": "No tenés permisos para realizar esta acción" }
 ```
@@ -277,11 +308,23 @@ Requiere sesión y rol `admin`.
 ## Cómo probar el flujo completo
 
 1. Levantar el servidor con `npm run dev`
-2. Registrar un usuario (queda con rol `user` por defecto)
-3. Para probar roles distintos, cambiar manualmente el campo `role` del usuario en MongoDB Compass (a `organizer` o `admin`) y volver a hacer login (el rol queda fijado en el JWT desde el momento del login)
-4. Probar `POST /api/events` con un usuario `user` → 403
-5. Probar `POST /api/events` con un usuario `organizer` → 201
-6. Probar `GET /api/users` con un usuario `organizer` → 403
-7. Probar `GET /api/users` con un usuario `admin` → 200
-8. Probar cualquier ruta protegida sin cookie → 401
-9. Probar que un `organizer` no pueda modificar un evento creado por otro `organizer` → 403
+2. Registrar un organizer y un usuario común (cambiar el rol del organizer manualmente en MongoDB Compass)
+3. Crear un evento y publicarlo (`PATCH /api/events/:id/status`)
+4. Inscribirse al evento con el usuario común → 201 + email de confirmación
+5. Probar inscripción sin sesión → 401
+6. Probar inscripción a evento inexistente → 404
+7. Cancelar el evento y probar inscribirse → 400
+8. Crear un evento con poco cupo e intentar pedir más cantidad de la disponible → 400
+9. Inscribirse dos veces al mismo evento con el mismo usuario → segunda vez 400
+10. Consultar `GET /api/tickets/my-tickets` → 200 con datos del evento vía populate
+11. Cancelar el ticket propio y volver a inscribirse → cupo liberado, 201
+12. Intentar cancelar un ticket ajeno como user → 403
+13. Consultar `GET /api/events/:eid/tickets` como user común → 403
+14. Consultar como organizer de otro evento → 403
+15. Consultar como el organizer dueño del evento → 200
+
+## Evidencia
+
+Captura del email de confirmación recibido tras una inscripción exitosa:
+
+![Email de confirmación](docs/email-confirmacion.png)
