@@ -12,6 +12,10 @@ export const updateEvent = async (id, updateData) => {
     return updateEventDao(id, updateData)
 }
 
+export const listEvents = async (filter, options) => {
+    return findEventsDao(filter, options)
+}
+
 export const getAllEvents = async () => {
     return findAllEvents()
 }
