@@ -1,7 +1,7 @@
 # Plataforma de Eventos e Inscripciones
 
 ## Temática
-Sistema para gestión de eventos e inscripciones, con autenticación centralizada mediante Passport.js, JWT y cookies, autorización por roles, entidad Events con reglas de negocio, y sistema de Tickets con control de cupos y notificaciones por email.
+Sistema para gestión de eventos e inscripciones, con autenticación centralizada mediante Passport.js, JWT y cookies, autorización por roles, entidad Events con reglas de negocio, sistema de Tickets con control de cupos y notificaciones por email, y arquitectura profesional en capas (DAO, Repository, Service, Controller, DTO).
 
 ## Tecnologías
 - Node.js
@@ -63,12 +63,16 @@ src/
 │ └── tickets.service.js
 ├── repositories/
 │ ├── user.repository.js
-│ ├── events.repository.js
+│ ├── event.repository.js
 │ └── tickets.repository.js
 ├── dao/
 │ ├── users.dao.js
-│ ├── events.dao.js
+│ ├── event.dao.js
 │ └── tickets.dao.js
+├── dto/
+│ ├── user.dto.js
+│ ├── event.dto.js
+│ └── ticket.dto.js
 ├── models/
 │ ├── event.model.js
 │ ├── ticket.model.js
@@ -80,8 +84,34 @@ src/
 ├── hash.js
 ├── jwt.js
 ├── reservationCode.js
-└── mailer.js
+├── mailer.js
+└── errorHandler.js
 
+
+## Arquitectura en capas
+
+El proyecto está organizado en capas con responsabilidades bien separadas y desacopladas:
+
+- **DAO** (`src/dao/`): únicos archivos del proyecto que importan modelos de Mongoose directamente. Exponen operaciones de acceso a datos puras (`create`, `findById`, `update`, `count`, etc.), sin lógica de negocio.
+- **Repository** (`src/repositories/`): usan el DAO correspondiente; nunca importan modelos directamente. Exponen métodos orientados al dominio (`getByEmail`, `listEvents`, `countActiveTicketsForEvent`, etc.).
+- **Service** (`src/services/`): consumen repositories, nunca DAOs ni modelos. Concentran toda la lógica de negocio: validaciones, permisos sobre recursos propios, cálculo de cupos, reglas de estado, envío de email.
+- **Controller** (`src/controllers/`): solo coordinan request/response. Extraen datos de `body`/`params`/`query`, llaman al service correspondiente y devuelven la respuesta ya formateada con el DTO correspondiente. No importan modelos ni contienen lógica de negocio.
+- **DTO** (`src/dto/`): funciones que filtran qué campos de un documento se exponen en cada respuesta. Existen para usuario (`user.dto.js`), evento (`event.dto.js`) y ticket (`ticket.dto.js`). Ninguna respuesta de la API expone la contraseña del usuario, ni siquiera hasheada — incluso cuando un documento viene con `populate` (por ejemplo, el usuario dentro de un ticket, o el evento dentro de un ticket), el DTO correspondiente filtra los datos del documento relacionado antes de responder.
+
+### Manejo de errores
+
+Todos los errores de negocio pasan por un único punto centralizado: `src/utils/errorHandler.js`. Este archivo mapea un código de error interno (por ejemplo `email_existente`, `sin_cupo`, `sin_permiso`) a su respuesta HTTP correspondiente (status + mensaje), garantizando un formato de error consistente en toda la API:
+
+- **400**: datos inválidos (campos faltantes, fecha pasada, capacidad/precio inválidos, etc.)
+- **401**: no autenticado (sin cookie o token inválido/expirado)
+- **403**: autenticado, pero sin permisos para la acción o el recurso solicitado
+- **404**: recurso no encontrado (evento o ticket inexistente)
+- **409**: conflicto (email ya registrado)
+- **500**: error interno no esperado
+
+### Comportamiento externo
+
+Este refactor no modifica el comportamiento externo de la API: todas las rutas de sesiones, eventos y tickets funcionan exactamente igual que en las entregas anteriores, con las mismas URLs, métodos y formatos generales de respuesta. Los cambios son puramente internos, orientados a mejorar la organización, el desacoplamiento entre capas y la seguridad de los datos expuestos.
 
 ## Autenticación con Passport.js
 
@@ -191,7 +221,7 @@ Respuesta:
 - Al confirmarse una inscripción, se envía un email de confirmación con Nodemailer (no bloqueante: si el envío falla, la inscripción igual queda registrada).
 
 ### Notificaciones por email
-Las credenciales de envío (`MAIL_HOST`, `MAIL_PORT`, `MAIL_USER`, `MAIL_PASS`, `MAIL_FROM`) se leen exclusivamente desde variables de entorno, nunca están hardcodeadas en el código. Cualquier persona que clone el repositorio puede usar sus propias credenciales (por ejemplo, una contraseña de aplicación de Gmail o un inbox de Mailtrap) sin modificar el código fuente.
+Las credenciales de envío (`MAIL_HOST`, `MAIL_PORT`, `MAIL_USER`, `MAIL_PASS`, `MAIL_FROM`) se leen exclusivamente desde variables de entorno, nunca están hardcodeadas en el código.
 
 ## Rutas disponibles (resumen general)
 
@@ -215,6 +245,119 @@ Las credenciales de envío (`MAIL_HOST`, `MAIL_PORT`, `MAIL_USER`, `MAIL_PASS`, 
 
 ---
 
+### POST /api/sessions/register
+
+**Request:**
+```json
+{ "first_name": "Ana", "last_name": "Pérez", "email": "ana@mail.com", "password": "Secreta123" }
+```
+
+**Response 201** (sin password, filtrada por userDTO):
+```json
+{
+  "status": "success",
+  "payload": { "id": "665f2a...", "first_name": "Ana", "last_name": "Pérez", "email": "ana@mail.com", "role": "user" }
+}
+```
+
+**Response 400 / 409** según el caso.
+
+---
+
+### POST /api/sessions/login
+
+**Request:**
+```json
+{ "email": "ana@mail.com", "password": "Secreta123" }
+```
+
+**Response 200** (setea la cookie `currentUser`):
+```json
+{ "status": "success", "message": "Login correcto" }
+```
+
+**Response 401:**
+```json
+{ "status": "error", "message": "Credenciales inválidas" }
+```
+
+---
+
+### GET /api/sessions/current
+
+**Response 200:**
+```json
+{ "status": "success", "payload": { "id": "665f2a...", "email": "ana@mail.com", "role": "user" } }
+```
+
+**Response 401:**
+```json
+{ "status": "error", "message": "No autenticado" }
+```
+
+---
+
+### POST /api/sessions/logout
+
+**Response 200:**
+```json
+{ "status": "success", "message": "Sesión cerrada" }
+```
+
+---
+
+### POST /api/events
+
+**Request:**
+```json
+{
+  "title": "Congreso Tech 2026",
+  "description": "Charlas sobre tecnología y desarrollo",
+  "category": "conference",
+  "date": "2026-12-01",
+  "location": "Buenos Aires",
+  "capacity": 100,
+  "price": 5000
+}
+```
+
+**Response 201** (filtrada por eventDTO):
+```json
+{
+  "status": "success",
+  "payload": {
+    "id": "6690...",
+    "title": "Congreso Tech 2026",
+    "description": "Charlas sobre tecnología y desarrollo",
+    "category": "conference",
+    "date": "2026-12-01T00:00:00.000Z",
+    "location": "Buenos Aires",
+    "capacity": 100,
+    "price": 5000,
+    "status": "draft",
+    "organizer": "665f2a..."
+  }
+}
+```
+
+**Response 400 / 401 / 403** según el caso.
+
+---
+
+### GET /api/events/:eid/tickets
+
+**Response 200** (usuarios filtrados por userDTO, sin password):
+```json
+{
+  "status": "success",
+  "payload": [
+    { "id": "6690...", "quantity": 1, "status": "confirmed", "user": { "id": "...", "first_name": "Ana", "last_name": "Pérez", "email": "ana@mail.com", "role": "user" } }
+  ]
+}
+```
+
+---
+
 ### POST /api/events/:eid/tickets
 
 **Request:**
@@ -228,35 +371,24 @@ Las credenciales de envío (`MAIL_HOST`, `MAIL_PORT`, `MAIL_USER`, `MAIL_PASS`, 
   "status": "success",
   "payload": {
     "id": "6690...",
-    "user": "665f2a...",
-    "event": "6690...",
-    "quantity": 2,
     "status": "confirmed",
-    "reservationCode": "RES-M5X2K1-A9B3F7"
+    "quantity": 2,
+    "reservationCode": "RES-M5X2K1-A9B3F7",
+    "createdAt": "...",
+    "cancelledAt": null,
+    "user": "665f2a...",
+    "event": "6690..."
   }
 }
 ```
 
-**Response 401** (sin sesión):
-```json
-{ "status": "error", "message": "No autenticado" }
-```
-
-**Response 404** (evento inexistente):
-```json
-{ "status": "error", "message": "Evento no encontrado" }
-```
-
-**Response 400** (evento no disponible, sin cupo, inscripción duplicada o cantidad inválida):
-```json
-{ "status": "error", "message": "No hay cupos suficientes disponibles" }
-```
+**Response 400 / 401 / 404** según el caso.
 
 ---
 
 ### GET /api/tickets/my-tickets
 
-**Response 200:**
+**Response 200** (evento filtrado por eventDTO cuando viene populado):
 ```json
 {
   "status": "success",
@@ -266,7 +398,7 @@ Las credenciales de envío (`MAIL_HOST`, `MAIL_PORT`, `MAIL_USER`, `MAIL_PASS`, 
       "status": "confirmed",
       "quantity": 1,
       "reservationCode": "RES-M5X2K1-A9B3F7",
-      "event": { "title": "Congreso Tech 2026", "date": "2026-12-01", "location": "Buenos Aires" }
+      "event": { "id": "...", "title": "Congreso Tech 2026", "date": "2026-12-01", "location": "Buenos Aires" }
     }
   ]
 }
@@ -278,7 +410,7 @@ Las credenciales de envío (`MAIL_HOST`, `MAIL_PORT`, `MAIL_USER`, `MAIL_PASS`, 
 
 **Response 200:**
 ```json
-{ "status": "success", "payload": { "id": "6690...", "status": "cancelled", "cancelledAt": "2026-08-02T..." } }
+{ "status": "success", "payload": { "id": "6690...", "status": "cancelled", "cancelledAt": "2026-08-08T..." } }
 ```
 
 **Response 403** (ticket ajeno):
@@ -286,45 +418,15 @@ Las credenciales de envío (`MAIL_HOST`, `MAIL_PORT`, `MAIL_USER`, `MAIL_PASS`, 
 { "status": "error", "message": "No tenés permisos para realizar esta acción" }
 ```
 
----
-
-### GET /api/events/:eid/tickets
-
-**Response 200:**
-```json
-{
-  "status": "success",
-  "payload": [
-    { "id": "6690...", "quantity": 1, "status": "confirmed", "user": { "first_name": "Ana", "last_name": "Pérez", "email": "ana@mail.com" } }
-  ]
-}
-```
-
-**Response 403** (no es el dueño del evento ni admin):
-```json
-{ "status": "error", "message": "No tenés permisos para realizar esta acción" }
-```
-
 ## Cómo probar el flujo completo
 
 1. Levantar el servidor con `npm run dev`
-2. Registrar un organizer y un usuario común (cambiar el rol del organizer manualmente en MongoDB Compass)
-3. Crear un evento y publicarlo (`PATCH /api/events/:id/status`)
+2. Registrar un organizer y un usuario común (cambiar el rol del organizer manualmente en MongoDB Compass, y volver a loguear)
+3. Crear un evento y publicarlo
 4. Inscribirse al evento con el usuario común → 201 + email de confirmación
-5. Probar inscripción sin sesión → 401
-6. Probar inscripción a evento inexistente → 404
-7. Cancelar el evento y probar inscribirse → 400
-8. Crear un evento con poco cupo e intentar pedir más cantidad de la disponible → 400
-9. Inscribirse dos veces al mismo evento con el mismo usuario → segunda vez 400
-10. Consultar `GET /api/tickets/my-tickets` → 200 con datos del evento vía populate
-11. Cancelar el ticket propio y volver a inscribirse → cupo liberado, 201
-12. Intentar cancelar un ticket ajeno como user → 403
-13. Consultar `GET /api/events/:eid/tickets` como user común → 403
-14. Consultar como organizer de otro evento → 403
-15. Consultar como el organizer dueño del evento → 200
-
-## Evidencia
-
-Captura del email de confirmación recibido tras una inscripción exitosa:
-
-![Email de confirmación](docs/email-confirmacion.png)
+5. Consultar `/current` y confirmar que la respuesta no incluya `password`
+6. Consultar `GET /api/tickets/my-tickets` y confirmar que el evento venga populado y filtrado (sin datos de más)
+7. Consultar `GET /api/events/:eid/tickets` como organizer dueño y confirmar que el usuario venga populado y filtrado (sin password)
+8. Provocar un error de negocio (por ejemplo, `capacity: 0`) y confirmar que devuelva 400, no 500
+9. Probar una ruta protegida sin sesión → 401
+10. Probar una ruta protegida con sesión pero sin el rol adecuado → 403

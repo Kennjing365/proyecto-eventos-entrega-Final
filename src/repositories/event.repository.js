@@ -1,4 +1,4 @@
-import { createEventDao, findEventById, updateEventDao, findAllEvents } from '../dao/event.dao.js'
+import { createEventDao, findEventById, updateEventDao, findAllEventsDao } from '../dao/event.dao.js'
 
 export const createEvent = async (eventData) => {
     return createEventDao(eventData)
@@ -13,9 +13,5 @@ export const updateEvent = async (id, updateData) => {
 }
 
 export const listEvents = async (filter, options) => {
-    return findEventsDao(filter, options)
-}
-
-export const getAllEvents = async () => {
-    return findAllEvents()
+    return findAllEventsDao(filter, options)
 }

@@ -57,7 +57,7 @@ export const createTicketService = async (eventId, quantity, user) => {
         quantity
     }) 
 
-    return { payloada: newTicket }
+    return { payload: newTicket }
 
 }
 

@@ -1,18 +1,9 @@
+import { userDTO } from '../dto/user.dto.js'
 import { generateToken } from "../utils/jwt.js";
 
 export const register = async (req, res) => {
     const user = req.user
-
-    return res.status(201).json({
-        status: 'succcess', 
-        payload: {
-            id: user._id,
-            first_name: user.first_name,
-            last_name: user.last_name,
-            email: user.email,
-            role: user.role
-        }
-    })
+    return res.status(201).json({ status: 'success', payload: userDTO(user) })
 }
 
 export const login = async (req, res) => {
