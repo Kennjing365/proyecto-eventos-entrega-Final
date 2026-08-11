@@ -7,3 +7,7 @@ export const createUser = async (userData) => {
 export const findUserByEmail = async (email) => {
     return userModel.findOne({ email })
 }
+
+export const findAllUsersDao = async () => {
+    return userModel.find()
+}

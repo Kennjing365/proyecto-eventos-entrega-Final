@@ -15,16 +15,16 @@ export const registerUserService = async ({ first_name, last_name, email, passwo
     const normalizedEmail = email.trim().toLowerCase()
 
     if (!EMAIL_REGEX.test(normalizedEmail)) {
-        return { error: 'email_invalido', message: 'El formato del email no es válido' }
+        return { error: 'email_invalido' }
     }
 
     if (password.length < MIN_PASSWORD_LENGTH) {
-        return { error: 'password_invalido', message: 'La contraseña debe tener al menos 8 caracteres' }
+        return { error: 'password_invalido' }
     }
 
     const existingUser = await getUserByEmail(normalizedEmail)
     if (existingUser) {
-        return { error: 'email_existente', message: 'El email ya está registrado' }
+        return { error: 'email_existente' }
     }
 
     const hashedPassword = await hashPassword(password)
@@ -37,15 +37,7 @@ export const registerUserService = async ({ first_name, last_name, email, passwo
         // role no se recibe del body: se aplica el default "user" del modelo
     })
 
-    return {
-        payload: {
-            id: newUser._id,
-            first_name: newUser.first_name,
-            last_name: newUser.last_name,
-            email: newUser.email,
-            role: newUser.role
-        }
-    }
+    return { payload: newUser }
 }
 
 //LOGIN USER SERVICES
@@ -62,16 +54,11 @@ export const loginUserService = async ({email, password}) => {
         return {error: 'credenciales_invalidas'}
     }
 
-    const isvalid = await comparePassword(password, user.password)
+    const isValid = await comparePassword(password, user.password)
 
-    if(!isvalid) {
-        return {error: 'credenciaales_invalidas'}
+    if(!isValid) {
+        return {error: 'credenciales_invalidas'}
     }
 
-    const token = generateToken({
-        id: user._id,
-        email: user.email,
-        role: user.role
-    })
-    return { token }
+   return { payload: user } 
 }
