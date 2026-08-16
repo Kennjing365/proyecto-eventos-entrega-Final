@@ -15,19 +15,18 @@ export const createTicketController = async (req, res) => {
         if (result.error) return handleError(res, result.error)
         return res.status(201).json({ status: 'success', payload: ticketDTO(result.payload) })
     } catch (error) {
-        console.log('ERROR EN CREATE TICKET:', error)
         return handleError(res, 'error_interno')
     }
 }
-
 
 export const cancelTicketController = async (req, res) => {
     try {
         const { tid } = req.params
         const result = await cancelTicketService(tid, req.user)
-        return res.status (200).json ({ status: 'success', payload: ticketDTO(result.payload) })
+        if (result.error) return handleError(res, result.error)
+        return res.status(200).json({ status: 'success', payload: ticketDTO(result.payload) })
     } catch (error) {
-        return handleError(res, 'error_interno') 
+        return handleError(res, 'error_interno')
     }
 }
 

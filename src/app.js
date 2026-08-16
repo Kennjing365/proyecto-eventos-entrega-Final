@@ -27,26 +27,4 @@ app.use('/api/tickets', ticketRouter)
 app.use('/api/events', eventRouter)
 app.use('/api/sessions', sessionsRouter)
 
-
-//middleware de manejo de errores de Passport
-app.use((err, req, res, next) => {
-    if (err && err.message) {
-        const messageMap = {
-            campos_faltantes: { status: 400, message: 'Faltan campos obligatorios' },
-            email_invalido: { status: 400, message: 'El formato del email no es válido' },
-            password_invalido: { status: 400, message: 'La contraseña debe tener al menos 8 caracteres' },
-            email_existente: { status: 409, message: 'El email ya está registrado' },
-            credenciales_invalidas: { status: 401, message: 'Credenciales inválidas' }
-        }
-
-        const known = messageMap[err.message]
-        if (known) {
-            return res.status(known.status).json({ status: 'error', message: known.message })
-        }
-    }
-
-    console.log(err)
-    return res.status(500).json({ status: 'error', message: 'Error interno del servidor' })
-})
-
 export default app

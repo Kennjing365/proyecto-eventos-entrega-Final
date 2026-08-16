@@ -17,9 +17,6 @@ router.post('/register', (req, res, next) => {
 
 router.post('/login', (req, res, next) => {
     passport.authenticate('login', { session: false }, (err, user, info) => {
-        console.log('LOGIN ERR:', err)      // 👈 agregá esto
-        console.log('LOGIN USER:', user)    // 👈 agregá esto
-        console.log('LOGIN INFO:', info)
         if (err) return handleError(res, 'error_interno')
         if (!user) return handleError(res, 'credenciales_invalidas')
         req.user = user

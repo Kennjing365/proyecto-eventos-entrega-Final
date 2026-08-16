@@ -20,10 +20,10 @@ export const login = async (req, res) => {
         httpOnly: true,
         sameSite: 'lax',
         maxAge: 3600000,
-        sucere: process.env.NODE_ENV === 'production'
+        secure: process.env.NODE_ENV === 'production'
     })
 
-    return res.status(200).json({ status: 'success', message: 'login correcto' })
+    return res.status(200).json({ status: 'success', message: 'Login correcto' })
 }
 
 export const current = async (req, res) => {
@@ -34,5 +34,5 @@ export const current = async (req, res) => {
 
 export const logout = async (req, res) => {
     res.clearCookie('currentUser')
-    return res.status(200).json({ status: 'seccess', message: 'Sesion cerrada' })
+    return res.status(200).json({ status: 'success', message: 'Sesion cerrada' })
 }
